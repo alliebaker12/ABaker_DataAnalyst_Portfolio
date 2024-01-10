@@ -1,0 +1,41 @@
+
+-- Task 1 Query
+SELECT COUNT(*) AS missing_year
+FROM products
+WHERE year_added IS NULL;
+
+--Task 2 Query
+
+SELECT 
+	product_id,
+	COALESCE(product_type,'Unknown') AS product_type_clean,
+	CASE WHEN brand = '-' THEN 'Unknown' ELSE brand END AS brand_clean,
+	ROUND(CAST((TRIM(' grams' FROM weight)) AS numeric),2) AS weight_clean,
+	ROUND((CAST(price2 AS numeric)),2) AS price_clean,
+	COALESCE(average_units_sold,0) AS avg_units_sold_clean,
+	COALESCE(year_added, '2022') AS year_added_clean,
+	UPPER(stock_location) AS clean_stock
+
+FROM (SELECT *,
+	COALESCE
+		(price,AVG(price) OVER ()) AS price2
+	FROM products) as sub_price;
+
+-- Task 3 Query
+
+SELECT
+  product_type,
+  MIN(price) AS min_price,
+  MAX(price) AS max_price
+FROM products
+GROUP BY product_type;
+
+-- Task 4 Query
+
+SELECT
+  product_id,
+  price,
+  average_units_sold
+FROM products
+WHERE (product_type = 'Meat' OR product_type = 'Dairy')
+  AND average_units_sold > 10;
