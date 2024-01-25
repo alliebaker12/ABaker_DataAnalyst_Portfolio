@@ -1,0 +1,15 @@
+
+SELECT 
+	extract(year FROM d.date_joined) as year_joined,
+	round(avg(f.valuation),2) as avg_valuation,
+	i.industry,
+	ROW_NUMBER() OVER(PARTITION BY extract(year FROM d.date_joined) ORDER BY round(avg(f.valuation),2) DESC) as rn,
+	count(i.company_id) as unicorn_count	
+
+FROM industries as i, funding as f, dates as d
+WHERE i.company_id = f.company_id
+	AND i.company_id = d.company_id
+	AND (extract(year FROM d.date_joined) = 2019 OR extract(year FROM d.date_joined) = 2020 OR extract(year FROM d.date_joined) = 2021) 
+	AND rn < 4
+GROUP BY year_joined, i.industry
+ORDER BY year_joined, avg_valuation DESC;
