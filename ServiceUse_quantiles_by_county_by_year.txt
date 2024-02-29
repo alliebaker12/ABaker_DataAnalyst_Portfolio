@@ -1,0 +1,152 @@
+import matplotlib.pyplot as plt
+import geopandas as gpd
+import numpy as np
+import pandas as pd
+
+yr = f"2018"
+fips_path = 'REDACTED'
+data_path = 'REDACTED'
+
+cnty_shape_path = 'cb_2018_us_county_20m.shp'
+state_shape_path = 'cb_2018_us_state_20m.shp'
+
+cnty_shape = gpd.read_file(cnty_shape_path)
+state_shape = gpd.read_file(state_shape_path)
+
+cnty_shape['county_code'] = cnty_shape['STATEFP']+cnty_shape['COUNTYFP']
+
+
+
+df = pd.read_csv(data_path, dtype = str, skipinitialspace=False)
+fips = pd.read_csv(fips_path, dtype = str)
+
+df = df.drop(df.loc[: , 'MSK_PCT_BM_ANY_CAREGVR': 'MSK_PCT_BM_ANY_NONMED_TRANSPO'].columns, axis=1)
+
+cnty_shape = cnty_shape.drop(cnty_shape[(cnty_shape['GEOID'] == '02016') & (cnty_shape['STATEFP'] == '02')].index)
+
+
+
+#format strings to prepare for numeric type
+for col in df:
+    df[col] = df[col].str.strip()
+
+df= df.replace(",","",regex=True)
+
+
+#replace 1-10 with 0
+df = df.replace ("1-10", 5)
+
+#replace *** with na
+df = df.replace ("***", np.nan)
+
+#convert proportion columns to float
+df = df.astype({
+    'MSK_BENE_COUNTY_CODE' : str ,
+    'MSK_BENE_COUNTY_NAME' : str ,
+    'MSK_PROP_BM_ANY_CAREGVR' : float ,
+    'MSK_PROP_BM_ANY_CASEMGT' : float ,
+    'MSK_PROP_BM_ANY_HCBS' : float ,
+    'MSK_PROP_BM_ANY_HOMEBASED' : float ,
+    'MSK_PROP_BM_ANY_MEALS' : float ,
+    'MSK_PROP_BM_ANY_NONMED_TRANSPO' : float ,
+    'MSK_SUM_BM_ANY_CAREGVR' : int ,
+    'MSK_SUM_BM_ANY_CASEMGT' : int ,
+    'MSK_SUM_BM_ANY_HCBS' : int ,
+    'MSK_SUM_BM_ANY_HOMEBASED' : int ,
+    'MSK_SUM_BM_ANY_MEALS' : int ,
+    'MSK_SUM_BM_ANY_NONMED_TRANSPO' : int ,
+    'MSK_TOT_BM' : float
+})
+
+#rename columns for counties
+
+
+df = df.rename(columns = {
+    'MSK_BENE_COUNTY_CODE' : 'county FIPS' ,
+    'MSK_BENE_COUNTY_NAME' : 'county' ,
+    'MSK_PROP_BM_ANY_CAREGVR' : 'Caregiver Support' ,
+    'MSK_PROP_BM_ANY_CASEMGT' : 'Case Management' ,
+    'MSK_PROP_BM_ANY_HCBS' : 'Any HCBS' ,
+    'MSK_PROP_BM_ANY_HOMEBASED' : 'Home-Based Services' ,
+    'MSK_PROP_BM_ANY_MEALS' : 'Home-Delivered Meals' ,
+    'MSK_PROP_BM_ANY_NONMED_TRANSPO' : 'Non-Medical Transportation' ,
+    'MSK_SUM_BM_ANY_CAREGVR' : 'care_sum' ,
+    'MSK_SUM_BM_ANY_CASEMGT' : 'casemgmt_sum' ,
+    'MSK_SUM_BM_ANY_HCBS' : 'any_hcbs_sum' ,
+    'MSK_SUM_BM_ANY_HOMEBASED' : 'home_svcs_sum' ,
+    'MSK_SUM_BM_ANY_MEALS' : 'meals_sum' ,
+    'MSK_SUM_BM_ANY_NONMED_TRANSPO' :'transp_sum' ,
+    'MSK_TOT_BM' : 'total bene months'})
+
+
+
+#replace original *** with recalculation
+
+x = 2
+while x < 8:
+
+    df.iloc[: , x] = round(df.iloc[: , x].fillna(df.iloc[: , x + 6] / df['total bene months']),4)
+    x = x+1
+
+#replace zeros in prop columns to na to recalculate quantile bins
+r = 2
+while r < 8:
+
+    df.iloc[: , r] = df.iloc[: , r].replace (0, np.nan)
+    r = r+1
+
+#Define the desired quantiles
+quantiles = [0, .25, .5, .75, 1]
+
+
+
+# Calculate quantiles for all prop columns and print them out
+i = 2
+while i < 8 :
+    qq = np.nanquantile(df.iloc[:, i], quantiles)
+    
+    print(qq)
+    i= i+1
+
+
+
+#shape and fips
+
+#convert state fip column to int
+
+
+#merge shape and data
+cnty_shape = pd.merge (
+    left = cnty_shape,
+    right = df,
+    left_on= 'county_code',
+    right_on= 'county FIPS',
+    how= 'left'
+)
+
+#define quantile ranges
+
+q_labels= ['quartile 1', 'quartile 2', 'quartile 3', 'quartile 4']
+
+#columns to be maps
+prop_cols = ['Caregiver Support', 'Case Management', 'Any HCBS', 'Home-Based Services', 'Home-Delivered Meals', 'Non-Medical Transportation']
+
+#define non-continguous states/territories
+pr_vi_gu = cnty_shape[cnty_shape['STATEFP'].isin(['66', '72', '78'])] 
+ak = cnty_shape[cnty_shape['STATEFP'].isin(['02'])]
+hawaii = cnty_shape[cnty_shape['STATEFP'].isin(['15'])]
+
+
+#iterate over columns
+for col in prop_cols:
+    #assign quantiles to values in 'care prop'
+    cnty_shape[col + '_quantile'] = pd.qcut(cnty_shape[col], q=quantiles, labels= q_labels)
+      
+    ax = cnty_shape.boundary.plot(edgecolor='black', linewidth=.2, figsize= (10, 5))
+    cnty_shape.plot(ax=ax, column=cnty_shape[col + '_quantile'], legend= True, cmap = 'Blues')
+    plt.title(col + f' in {yr} by County in the US')
+    plt.show()
+    
+   
+    plt.savefig(f'n:\\REDACTED')
+   
