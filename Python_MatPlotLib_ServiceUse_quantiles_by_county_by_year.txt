@@ -136,17 +136,66 @@ pr_vi_gu = cnty_shape[cnty_shape['STATEFP'].isin(['66', '72', '78'])]
 ak = cnty_shape[cnty_shape['STATEFP'].isin(['02'])]
 hawaii = cnty_shape[cnty_shape['STATEFP'].isin(['15'])]
 
+bins = {'Caregiver Support_bins': [0,0.0001,0.0006,0.0018,0.0066,0.1308],
+        'Case Management_bins': [0, 0.0001,0.0040,0.0161,0.0548,0.4754],
+        'Any HCBS_bins': [0,0.0039,	0.0936,	0.1506,	0.2264,	0.6725],
+        'Home-Based Services_bins' :[0, 0.0002,0.0160,	0.0462,	0.0892,	0.6089],
+        'Home-Delivered Meals_bins' : [0, 0.0001,0.0030,0.0142,0.0392,	0.2790],
+        'Non-Medical Transportation_bins' : [0, 0.0007,0.0342,	0.0558,	0.0802,	0.3364]
+        }
+bins_df = pd.DataFrame(bins)
+
+colors = ['whitesmoke', '#abcae4', '#619bcc', '#316a9a', '#193750']
+cmap = ListedColormap(colors)
 
 #iterate over columns
 for col in prop_cols:
     #assign quantiles to values in 'care prop'
-    cnty_shape[col + '_quantile'] = pd.qcut(cnty_shape[col], q=quantiles, labels= q_labels)
-      
-    ax = cnty_shape.boundary.plot(edgecolor='black', linewidth=.2, figsize= (10, 5))
-    cnty_shape.plot(ax=ax, column=cnty_shape[col + '_quantile'], legend= True, cmap = 'Blues')
-    plt.title(col + f' in {yr} by County in the US')
-    plt.show()
+    cnty_shape[col +'_quantile']=pd.cut(cnty_shape[col] , bins = bins_df[col +'_bins'], labels= ['quantile 0/unknown', 'quantile 1', 'quantile 2', 'quantile 3', 'quantile 4'])
+    cnty_shape[col + '_quantile']= cnty_shape[col +'_quantile'].fillna('quantile 0/unknown')    
+
+    labels= ['quantile 0/unknown', 'quantile 1', 'quantile 2', 'quantile 3', 'quantile 4']
+
+
+
+    fig, ax = plt.subplots(1, figsize = (18, 14))
+    #below line takes out non-contiguous states    
+    cnty_shape = cnty_shape[~cnty_shape['STATEFP'].isin(['02', '15', '66', '72', '78'])]
+    #ax = cnty_shape.boundary.plot(edgecolor='Black', linewidth=.2, figsize= (10, 5))
+    cnty_shape.plot(ax=ax, column=cnty_shape[col + '_quantile'], edgecolor='Black', linewidth=.2, legend= True, cmap=cmap)
+    ax.set_xlim(-125,-62)
+    ax.axis('off')
+   
+    # Add Alaska Axis (x, y, width, height)
+    akax = fig.add_axes([0.1, 0.17, 0.17, 0.16])
+
+
+    ak[col + '_quantile'] = pd.cut(ak[col], bins = bins_df[col +'_bins'], labels= ['quantile 0/unknown', 'quantile 1', 'quantile 2', 'quantile 3', 'quantile 4'])
+    ak[col +'_quantile']=ak[col +'_quantile'].fillna('quantile 0/unknown')
+    #ax = ak.boundary.plot(edgecolor='black', linewidth=.2, figsize= (10, 5))
+    ak.plot(ax=akax, column=ak[col + '_quantile'], edgecolor='Black', linewidth=.2,  legend= False, cmap=cmap)
+    akax.set_xlim(-200,-120)
+    akax.axis('off') 
+
+    # Add Hawaii Axis(x, y, width, height)
+    hiax = fig.add_axes([.28, 0.20, 0.1, 0.1])
+    hawaii[col + '_quantile'] = pd.cut(hawaii[col], bins = bins_df[col +'_bins'], labels= ['quantile 0/unknown', 'quantile 1', 'quantile 2', 'quantile 3', 'quantile 4'])
+    hawaii[col +'_quantile']=hawaii[col +'_quantile'].fillna('quantile 0/unknown')
+    #hiax = hawaii.boundary.plot(edgecolor='black', linewidth=.2, figsize= (10, 5))
+    hawaii.plot(ax=hiax, column=hawaii[col + '_quantile'], edgecolor='Black', linewidth=.2, legend= False, cmap=cmap)
+    hiax.axis('off')
+
+    prax = fig.add_axes([.7,.21,0.07,0.07])
+    pr_vi_gu[col + '_quantile'] = pd.cut(pr_vi_gu[col], bins = bins_df[col +'_bins'], labels= ['quantile 0/unknown', 'quantile 1', 'quantile 2', 'quantile 3', 'quantile 4'])
+    pr_vi_gu[col +'_quantile']=pr_vi_gu[col +'_quantile'].fillna('quantile 0/unknown')
+    #ax = pr_vi_gu.boundary.plot(edgecolor='black', linewidth=.2, figsize= (10, 5))
+    pr_vi_gu.plot(ax=prax, column=pr_vi_gu[col + '_quantile'], edgecolor='Black', linewidth=.2,  legend= False, cmap=cmap)
+    prax.axis('off')
     
+    #change name based on contiguous or not
+    plt.savefig(f'n:\\Project\\51960_ACL\\Restricted\\DC1\\Task4&5_Analysis\\Output\\Project 1\\Python\\{yr}_county_all_{col}')
+    #plt.show()
+
    
     plt.savefig(f'n:\\REDACTED')
    
