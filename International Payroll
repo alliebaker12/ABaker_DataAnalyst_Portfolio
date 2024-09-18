@@ -1,0 +1,447 @@
+
+select * from    
+    
+    (with total as
+       ( SELECT person_number, full_name, assignment_number, element_name, element_entry_id, LAST_UPDATE, SCREEN_ENTRY_VALUE, currency, effective_start_date, effective_end_date, assignment_status, Job_Level, Business_Title, legal_employer, le_code, cost_center, rn
+                FROM 
+                (   SELECT
+                    papf.person_number,
+                    ppnf.full_name,
+                    paam.assignment_number,
+                    pett.element_name,
+                    peef.element_entry_id, --to label each pay entry for a recurring report
+                    peef.last_update_date as LAST_UPDATE,
+                    trunc(peef.last_update_date) as date_sort,
+                    	TRIM(to_char(peevf.SCREEN_ENTRY_VALUE,'9,999,999,999,999.99')) SCREEN_ENTRY_VALUE,
+                    petf.input_currency_code   currency,
+                    gdr.conversion_rate,
+                	TRIM(to_char((case when  gdr.conversion_rate is not null then
+                    ( peevf.screen_entry_value * gdr.conversion_rate )
+                	else
+                	NVL( peevf.screen_entry_value * (select distinct conversion_rate from gl_daily_rates where
+                     to_char(conversion_date,'YYYY/MM/DD' ) = '2022/02/08' 
+                        AND from_currency  = petf.input_currency_code
+                        AND to_currency  = 'USD'
+                        AND conversion_type  = 'Corporate') ,peevf.screen_entry_value
+                	) end),'9,999,999,999,999.99')) USDAMOUNT,
+                    to_char(peef.effective_start_date, 'YYYY/MM/DD') as effective_start_date,
+                    to_char(peef.effective_end_date, 'YYYY/MM/DD') as effective_end_date,
+                    pastt.user_status          assignment_status,
+                    	(
+                        	SELECT DISTINCT pjlx.information3
+                        	FROM per_job_leg_x pjlx
+                        	WHERE 1=1
+                        	AND pjlx.job_id = pj.job_id
+                        	AND pjlx.information_category = 'HRX_US_JOBS'
+                        	AND TRUNC(SYSDATE) BETWEEN pjlx.effective_start_date AND pjlx.effective_end_date
+                	)    
+                	Job_Level,
+                    pj.name                      Business_Title,
+                    ple.name                   legal_employer,
+                    regexp_replace(ple.name, '[^0-9]') le_code,
+                	(
+                    		SELECT substr(hauft.NAME,5) as dept
+                                FROM   HR_ORG_UNIT_CLASSIFICATIONS_F houcf,
+                                	   HR_ALL_ORGANIZATION_UNITS_F haouf,
+                                	   HR_ORGANIZATION_UNITS_F_TL hauft
+                                	  -- PER_ALL_ASSIGNMENTS_M    paam
+                                WHERE   haouf.ORGANIZATION_ID = houcf.ORGANIZATION_ID
+                                AND haouf.ORGANIZATION_ID = hauft.ORGANIZATION_ID
+                                AND haouf.EFFECTIVE_START_DATE BETWEEN houcf.EFFECTIVE_START_DATE AND houcf.EFFECTIVE_END_DATE
+                                AND hauft.LANGUAGE = 'US'
+                                AND hauft.EFFECTIVE_START_DATE = haouf.EFFECTIVE_START_DATE
+                                AND hauft.EFFECTIVE_END_DATE = haouf.EFFECTIVE_END_DATE
+                                AND houcf.CLASSIFICATION_CODE = 'DEPARTMENT'
+                                AND trunc(sysdate) BETWEEN hauft.effective_start_date AND hauft.effective_end_date
+                                AND trunc(sysdate) BETWEEN houcf.effective_start_date AND houcf.effective_end_date
+                                AND hauft.organization_id = paam.organization_id
+                                AND trunc(paam.EFFECTIVE_START_DATE) BETWEEN hauft.effective_start_date AND hauft.effective_end_date
+                                AND trunc(paam.EFFECTIVE_START_DATE) BETWEEN houcf.effective_start_date AND houcf.effective_end_date
+                                AND trunc(paam.EFFECTIVE_START_DATE) BETWEEN haouf.effective_start_date AND haouf.effective_end_date
+                                AND (:p_AsOfDate IS NULL AND
+                                        ((paam.effective_end_date >= (:p_FromDate)) AND (paam.EFFECTIVE_START_DATE <= (:p_ToDate))         )
+                                        OR 
+                                            (:p_AsOfDate BETWEEN paam.effective_start_date AND paam.effective_end_date )
+                                    )
+                	) 
+                	Cost_Center,
+                	peef.last_update_date peev_LUD, 
+                	peevf.last_update_date peevf_LUD,
+                	t.processing_type,
+                	ROW_NUMBER() OVER (PARTITION BY papf.person_number ORDER BY person_number ASC, peef.last_update_date DESC) as rn
+                
+                    FROM
+                        per_all_people_f                 papf,
+                        per_person_names_f               ppnf,
+                        per_all_assignments_m            paam,
+                        per_periods_of_service           ppos,
+                        per_legal_employers              ple,
+                        pay_element_entries_f            peef,
+                        pay_element_types_tl             pett,
+                        pay_element_entry_values_f       peevf,
+                        pay_element_entries_vl           peev,
+                        pay_input_values_f               pivf,
+                        pay_input_values_tl              pivt,
+                        pay_element_types_f              petf,
+                        gl_daily_rates                   gdr,
+                        per_assignment_status_types_tl   pastt,
+                        per_jobs                         pj,
+                        per_legislative_data_groups      pldg,
+                        (
+                            select 
+                            distinct
+                              pet.ELEMENT_NAME AS ElementName,
+                              pet.processing_type as processing_type
+                            from 
+                            pay_element_types_vl pet, 
+                            pay_ele_classifications_vl pec1
+                            where
+                            1=1
+                            AND pet.SECONDARY_CLASSIFICATION_ID = pec1.CLASSIFICATION_ID
+                            --AND (pec1.CLASSIFICATION_NAME IN ('Country Allowance') OR (pet.ELEMENT_NAME IN('Severance')) )
+                    
+                            --AND pet.ELEMENT_NAME in ('Severance', 'Travel Allowance', 'Car Allowance', 'GS Allowance', 'Occupation Allowance', 'Transporatation Allowance', 'Housing Allowance', 'Auto Allowance', 'Meal Allowance', 'Provident Fund', 'Cost of Living Allowance', 'Administrative Fee', 'Life Insurance Reimb', 'Special Allowance', 'Other Allowance Car', 'CPF In Lieu', 'Education Allowance', 'Dependent Education Reimbursement', 'Temporary Inpatriation', 'Family Allowance', 'Health Care Reimb','Remote Work Allowances')
+                            AND pet.ELEMENT_NAME not like '%Retro'
+                            AND trunc(sysdate) between pet.last_update_date and pet.effective_end_date
+                            AND trunc(sysdate) between pec1.date_from and nvl(pec1.date_to,sysdate)
+                        ) t,
+                        (
+                            SELECT
+                                MAX(processend) last_run_date
+                            FROM
+                                fusion.ess_request_history    erh,
+                                fusion.ess_request_property   erp
+                            WHERE
+                                1 = 1
+                                AND erh.product = 'BI Publisher'
+                                AND erh.requestid = erp.requestid
+                                AND erh.executable_status = 'SUCCEEDED'
+                                AND erp.name = 'report_url'
+                                AND erp.value LIKE '/Custom/Human Capital Management/Payroll/Country Allowance Elements Report.xdo'
+                        ) p
+                    
+                    WHERE
+                        papf.person_id = paam.person_id
+                        AND papf.person_id = ppnf.person_id
+                        AND ppnf.name_type = 'GLOBAL'
+                        AND paam.effective_latest_change = 'Y'
+                        AND paam.assignment_type IN ('E')
+                        AND papf.person_id = ppos.person_id
+                        AND ( ( ppos.person_id,
+                                ppos.date_start ) = (
+                            SELECT
+                                person_id,
+                                MAX(date_start)
+                            FROM
+                                per_periods_of_service
+                            WHERE
+                                person_id = ppos.person_id
+                    			AND PERIOD_TYPE='E'
+                                AND trunc(date_start) <= trunc(sysdate)
+                            GROUP BY
+                                person_id
+                        ) )
+                        AND ppos.person_id = peef.person_id
+                        AND paam.period_of_service_id = ppos.period_of_service_id
+                        AND peevf.element_entry_id = peef.element_entry_id
+                        AND pivf.element_type_id = petf.element_type_id
+                        AND peevf.input_value_id = pivf.input_value_id
+                        AND petf.element_type_id = pett.element_type_id
+                        AND pett.language = 'US'
+                        AND peef.element_entry_id = peev.element_entry_id
+                        AND peev.assignment_id = paam.assignment_id
+                        AND petf.legislative_data_group_id = pldg.legislative_data_group_id (+)
+                        AND pett.element_name = t.elementname
+                        AND paam.legal_entity_id = ple.organization_id
+                        AND gdr.conversion_date(+)  = trunc(peef.effective_start_date)
+                        AND gdr.from_currency (+) = petf.input_currency_code
+                        AND gdr.to_currency (+) = 'USD'
+                        AND gdr.conversion_type (+) = 'Corporate'
+                        and gdr.conversion_date(+) = trunc(peef.effective_start_date)
+                        AND paam.assignment_status_type_id = pastt.assignment_status_type_id
+                        AND pastt.language = 'US'
+                        AND paam.job_id = pj.job_id
+                        
+                        
+                        AND t.processing_type = 'R' 
+                    
+                        AND pett.element_name != 'SIP Target'
+                    
+                    	--AND (trunc(peef.last_update_date) < TRUNC(:p_eff_mon, 'MM'))
+                        --AND trunc(sysdate) BETWEEN peef.effective_start_date AND peef.effective_end_date
+                    	
+                    	
+                    	AND ( peef.effective_start_date ) BETWEEN peevf.effective_start_date AND peevf.effective_end_date
+                        AND trunc(peef.effective_start_date) BETWEEN petf.effective_start_date AND petf.effective_end_date
+                        AND (:p_AsOfDate IS NULL AND ((:p_ToDate BETWEEN paam.effective_start_date AND paam.effective_end_date) OR (:p_FromDate BETWEEN paam.effective_start_date AND paam.effective_end_date)) 
+                            OR ((:p_AsOfDate) BETWEEN paam.effective_start_date AND paam.effective_end_date)
+                        )
+                        AND trunc(peef.effective_start_date) BETWEEN papf.effective_start_date AND papf.effective_end_date
+                        AND trunc(peef.effective_start_date) BETWEEN ppnf.effective_start_date AND ppnf.effective_end_date
+                        AND trunc(peef.effective_start_date) BETWEEN pivf.effective_start_date AND pivf.effective_end_date
+                        --AND trunc(sysdate) BETWEEN pj.effective_start_date AND pj.effective_end_date
+                        AND trunc(peef.effective_start_date) BETWEEN ple.effective_start_date AND ple.effective_end_date
+                        AND trunc(peef.effective_start_date) BETWEEN peev.effective_start_date AND peev.effective_end_date
+                        AND trunc(peef.effective_start_date) BETWEEN peev.effective_start_date1 AND peev.effective_end_date1
+                    
+                       -- AND (trunc(peef.last_update_date) < TRUNC(:p_eff_mon, 'MM')-1)
+                    
+                        AND pivt.name = 'Amount'
+                        AND pivf.input_value_id = pivt.input_value_id
+                        AND pivt.language = 'US'
+                        AND regexp_replace(ple.name, '[^0-9]') != '701' AND regexp_replace(ple.name, '[^0-9]') != '575' -- Excludes US LE
+                        AND (regexp_replace(ple.name, '[^0-9]') = :p_le_code)
+                        AND (:p_AsOfDate IS NULL AND (
+                                                    (((peef.effective_end_date >= (:p_FromDate) AND peef.effective_end_date <= (:p_ToDate)) OR -- past
+                                                    (peef.effective_end_date >= (:p_ToDate) OR (peef.effective_end_date >= (:p_FromDate)))) 
+                                                    AND peef.effective_start_date <= (:p_ToDate)
+                                                    ) )
+                                                OR ((peef.effective_start_date <= :p_AsOfDate ) AND (peef.effective_end_date >= :p_AsOfDate ))
+        
+                    )
+                    
+                    order by person_number ASC, date_sort DESC
+                )    aw  
+            
+            UNION
+            
+            SELECT person_number, full_name, assignment_number, pay_basis, element_entry_id, LAST_UPDATE, salary_amount, currency, date_from, date_to, assignment_status, Job_Level, Business_Title, legal_employer, le_code, cost_center, rn
+            FROM 
+                
+                (
+        
+                    SELECT distinct
+                            papf.person_number,
+                            ppnf.full_name,
+                            paam.assignment_number,
+                            csb.salary_basis_name as pay_basis,
+                            cs.element_entry_id as element_entry_id, --to label each pay entry for a recurring report
+                            cs.last_update_date as LAST_UPDATE,
+                            trunc(cs.date_to) as date_sort,
+                            to_char((CASE
+                                WHEN csb.salary_basis_name = 'Hourly' THEN
+                                    cs.salary_amount
+                                ELSE
+                                    round(cs.salary_amount, 2)
+                            END)) salary_amount,
+                            cs.currency_code   currency,
+                        	gdr.conversion_rate,
+                            to_char(round(cs.annual_salary*NVL(gdr.conversion_rate, 1), 2)) usd_annual_salary,
+                        	
+                            to_char(cs.date_from, 'YYYY/MM/DD') as date_from,
+                            to_char(cs.date_to, 'YYYY/MM/DD') as date_to,
+                            pastt.user_status          assignment_status,
+                            	(
+                                	SELECT DISTINCT pjlx.information3
+                                	FROM per_job_leg_x pjlx
+                                	WHERE 1=1
+                                	AND pjlx.job_id = pj.job_id
+                                	AND pjlx.information_category = 'HRX_US_JOBS'
+                                	AND TRUNC(SYSDATE) BETWEEN pjlx.effective_start_date AND pjlx.effective_end_date
+                        	)    
+                        	Job_Level,
+                            pj.name                      Business_Title,
+                            ple.name                   legal_employer,
+                            regexp_replace(ple.name, '[^0-9]') le_code,
+                        	(
+                            	SELECT substr(hauft.NAME,5) as dept
+                                FROM   HR_ORG_UNIT_CLASSIFICATIONS_F houcf,
+                                	   HR_ALL_ORGANIZATION_UNITS_F haouf,
+                                	   HR_ORGANIZATION_UNITS_F_TL hauft
+                                	  -- PER_ALL_ASSIGNMENTS_M    paam
+                                WHERE   haouf.ORGANIZATION_ID = houcf.ORGANIZATION_ID
+                                AND haouf.ORGANIZATION_ID = hauft.ORGANIZATION_ID
+                                AND haouf.EFFECTIVE_START_DATE BETWEEN houcf.EFFECTIVE_START_DATE AND houcf.EFFECTIVE_END_DATE
+                                AND hauft.LANGUAGE = 'US'
+                                AND hauft.EFFECTIVE_START_DATE = haouf.EFFECTIVE_START_DATE
+                                AND hauft.EFFECTIVE_END_DATE = haouf.EFFECTIVE_END_DATE
+                                AND houcf.CLASSIFICATION_CODE = 'DEPARTMENT'
+                                AND trunc(sysdate) BETWEEN hauft.effective_start_date AND hauft.effective_end_date
+                                AND trunc(sysdate) BETWEEN houcf.effective_start_date AND houcf.effective_end_date
+                                AND hauft.organization_id = paam.organization_id
+                                AND trunc(paam.EFFECTIVE_START_DATE) BETWEEN hauft.effective_start_date AND hauft.effective_end_date
+                                AND trunc(paam.EFFECTIVE_START_DATE) BETWEEN houcf.effective_start_date AND houcf.effective_end_date
+                                AND trunc(paam.EFFECTIVE_START_DATE) BETWEEN haouf.effective_start_date AND haouf.effective_end_date
+                                AND (:p_AsOfDate IS NULL AND
+                                        ((paam.effective_end_date >= (:p_FromDate)) AND (paam.EFFECTIVE_START_DATE <= (:p_ToDate))         )
+                                        OR 
+                                            (:p_AsOfDate BETWEEN paam.effective_start_date AND paam.effective_end_date )
+                                    )
+                                    
+                        	) 
+                        	Cost_Center,
+                	    	peef.last_update_date peev_LUD, 
+                    	    peevf.last_update_date peevf_LUD,
+                        	t.processing_type,
+                        	ROW_NUMBER() OVER (PARTITION BY peef.element_entry_id, peevf.SCREEN_ENTRY_VALUE  ORDER BY person_number ASC, peef.last_update_date DESC) as rn
+                        
+                        FROM
+                            per_all_people_f                 papf,
+                            per_person_names_f               ppnf,
+                            per_all_assignments_m            paam,
+                            per_periods_of_service           ppos,
+                            per_legal_employers              ple,
+                            pay_element_entries_f            peef,
+                            pay_element_types_tl             pett,
+                            pay_element_entry_values_f       peevf,
+                            pay_element_entries_vl           peev,
+                            pay_input_values_f               pivf,
+                            pay_input_values_tl              pivt,
+                            pay_element_types_f              petf,
+                            gl_daily_rates                   gdr,
+                            per_assignment_status_types_tl   pastt,
+                            per_jobs                         pj,
+                            per_legislative_data_groups      pldg,
+                            cmp_salary                       cs,
+                            cmp_salary_bases_vl              csb,
+                            (
+                                select 
+                                distinct
+                                  pet.ELEMENT_NAME AS ElementName,
+                                  pet.processing_type as processing_type,
+                                  pec1.base_classification_name,
+                                  pec1.classification_name
+                                from 
+                                pay_element_types_vl pet, 
+                                pay_ele_classifications_vl pec1
+                                where
+                                1=1
+                                AND (pet.SECONDARY_CLASSIFICATION_ID = pec1.CLASSIFICATION_ID OR pet.classification_id = pec1.classification_id)
+                                
+                                --AND (pec1.CLASSIFICATION_NAME IN ('Country Allowance') OR (pet.ELEMENT_NAME IN('Severance')) )
+                        
+                                --AND pet.ELEMENT_NAME in ('Severance', 'Travel Allowance', 'Car Allowance', 'GS Allowance', 'Occupation Allowance', 'Transporatation Allowance', 'Housing Allowance', 'Auto Allowance', 'Meal Allowance', 'Provident Fund', 'Cost of Living Allowance', 'Administrative Fee', 'Life Insurance Reimb', 'Special Allowance', 'Other Allowance Car', 'CPF In Lieu', 'Education Allowance', 'Dependent Education Reimbursement', 'Temporary Inpatriation', 'Family Allowance', 'Health Care Reimb','Remote Work Allowances')
+                                AND pet.ELEMENT_NAME not like '%Retro'
+                                AND trunc(sysdate) between pet.last_update_date and pet.effective_end_date
+                                AND trunc(sysdate) between pec1.date_from and nvl(pec1.date_to,sysdate)
+                               -- AND pet.processing_type = 'R'
+                            ) t,
+                            (
+                                SELECT
+                                    MAX(processend) last_run_date
+                                FROM
+                                    fusion.ess_request_history    erh,
+                                    fusion.ess_request_property   erp
+                                WHERE
+                                    1 = 1
+                                    AND erh.product = 'BI Publisher'
+                                    AND erh.requestid = erp.requestid
+                                    AND erh.executable_status = 'SUCCEEDED'
+                                    AND erp.name = 'report_url'
+                                    AND erp.value LIKE '/Custom/Human Capital Management/Payroll/Country Allowance Elements Report.xdo'
+                            ) p
+                        
+                        WHERE
+                            papf.person_id = paam.person_id
+                            AND cs.assignment_id (+) = paam.assignment_id
+                            AND csb.salary_basis_id (+) = cs.salary_basis_id
+                                AND paam.primary_flag = 'Y'
+                            AND papf.person_id = ppnf.person_id
+                            AND ppnf.name_type = 'GLOBAL'
+                            AND paam.effective_latest_change = 'Y'
+                            AND papf.person_id = ppos.person_id
+                            AND ( ( ppos.person_id,
+                                    ppos.date_start ) = (
+                                SELECT
+                                    person_id,
+                                    MAX(date_start)
+                                FROM
+                                    per_periods_of_service
+                                WHERE
+                                    person_id = ppos.person_id
+                        			AND PERIOD_TYPE='E'
+                                    AND trunc(date_start) <= trunc(sysdate)
+                                GROUP BY
+                                    person_id
+                            ) )
+                            AND ppos.person_id = peef.person_id
+                            AND paam.period_of_service_id = ppos.period_of_service_id
+                            AND peevf.element_entry_id = peef.element_entry_id
+                            AND pivf.element_type_id = petf.element_type_id
+                            AND peevf.input_value_id = pivf.input_value_id
+                            AND petf.element_type_id = pett.element_type_id
+                            AND pett.language = 'US'
+                            AND peef.element_entry_id = peev.element_entry_id
+                            AND peev.assignment_id = paam.assignment_id
+                            AND petf.legislative_data_group_id = pldg.legislative_data_group_id (+)
+                            AND pett.element_name = t.elementname
+                            AND paam.legal_entity_id = ple.organization_id
+                            AND paam.assignment_status_type_id = pastt.assignment_status_type_id
+                            AND paam.assignment_type = 'E'
+                            AND paam.assignment_status_type IN (
+                                'ACTIVE',
+                                'SUSPENDED'
+                            )
+                            AND pastt.language = 'US'
+                            AND paam.job_id = pj.job_id
+                            AND csb.language = 'US'
+                            AND csb.source_lang = 'US'
+                            
+                            
+                            --AND t.processing_type = 'R' 
+                            AND (csb.salary_basis_name LIKE '%Salary' OR csb.salary_basis_name LIKE '%Salary%')
+                        
+                            --AND ((trunc(peef.last_update_date) BETWEEN (trunc(sysdate)-90) AND (TRUNC(sysdate)))) --looks at update dates minus 14 days from system date
+                          
+                        	--AND (trunc(peef.last_update_date) < TRUNC(:p_eff_mon, 'MM'))
+                        	
+                        	
+                        	AND ( peef.effective_start_date ) BETWEEN peevf.effective_start_date AND peevf.effective_end_date
+                        	
+                        	
+                        	AND ( peef.effective_start_date ) BETWEEN peevf.effective_start_date AND peevf.effective_end_date
+                            AND trunc(peef.effective_start_date) BETWEEN petf.effective_start_date AND petf.effective_end_date
+                            AND (:p_AsOfDate IS NULL AND ((:p_ToDate BETWEEN paam.effective_start_date AND paam.effective_end_date) OR (:p_FromDate BETWEEN paam.effective_start_date AND paam.effective_end_date)) 
+                                OR ((:p_AsOfDate) BETWEEN paam.effective_start_date AND paam.effective_end_date)
+                                )
+                            AND trunc(peef.effective_start_date) BETWEEN papf.effective_start_date AND papf.effective_end_date
+                            AND trunc(peef.effective_start_date) BETWEEN ppnf.effective_start_date AND ppnf.effective_end_date
+                            AND trunc(peef.effective_start_date) BETWEEN pivf.effective_start_date AND pivf.effective_end_date
+                            AND trunc(sysdate) BETWEEN pj.effective_start_date AND pj.effective_end_date
+                            AND trunc(peef.effective_start_date) BETWEEN ple.effective_start_date AND ple.effective_end_date
+                            AND trunc(peef.effective_start_date) BETWEEN peev.effective_start_date AND peev.effective_end_date
+                            AND trunc(peef.effective_start_date) BETWEEN peev.effective_start_date1 AND peev.effective_end_date1
+                        	AND gdr.from_currency(+) = cs.currency_code 
+                            AND gdr.conversion_type (+) = 'Corporate'
+                            AND gdr.to_currency(+) = 'USD' 
+                            and gdr.conversion_date(+) = trunc(cs.date_from)
+                            --AND (trunc(peef.last_update_date) < TRUNC(:p_eff_mon, 'MM')-1)
+                        
+                            AND pivt.name = 'Amount'
+                            AND pivf.input_value_id = pivt.input_value_id
+                            AND pivt.language = 'US'
+                            AND regexp_replace(ple.name, '[^0-9]') != '701' AND regexp_replace(ple.name, '[^0-9]') != '575' -- Excludes US LE
+                            AND cs.assignment_id  = paam.assignment_id
+                           --AND cs.element_entry_id  = peef.element_entry_id
+                            
+                            AND regexp_replace(ple.name, '[^0-9]') = :p_le_code
+                            AND (:p_AsOfDate IS NULL AND
+                                    (
+                                        (cs.date_to >= (:p_FromDate)) AND (cs.date_from <= (:p_ToDate)) 
+                                    )
+                                    OR 
+                                        (
+                                        :p_AsOfDate BETWEEN paam.effective_start_date AND paam.effective_end_date
+                                        AND :p_AsOfDate BETWEEN cs.date_from  AND cs.date_to
+                                        )
+                                )
+                           
+                            --AND to_char(cs.date_to, 'YYYY/MM/DD') = '4712/12/31' 
+                            
+                        order by person_number ASC, date_sort DESC
+                    )
+                WHERE cost_center IS NOT NULL
+                
+                        
+          )
+        
+    SELECT     
+    person_number, full_name, assignment_number, element_name, element_entry_id, LAST_UPDATE, SCREEN_ENTRY_VALUE, currency, effective_start_date, effective_end_date, assignment_status, Job_Level, Business_Title, legal_employer, le_code, cost_center,
+    (CASE WHEN element_name LIKE '%Allowance' THEN 1
+    ELSE ROW_NUMBER() OVER (PARTITION BY element_entry_id, cost_center ORDER BY person_number ASC, effective_end_date DESC) END) as rn2
+    FROM total
+    order by person_number ASC, effective_end_date DESC
+    )
+where RN2 = 1
+
+        
