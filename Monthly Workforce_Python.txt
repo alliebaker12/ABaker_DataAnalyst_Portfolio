@@ -1,0 +1,366 @@
+# %% [markdown]
+# ### How to Set Up Your Environment to Run the Code
+# 
+# #### Step 1: Download and Install Visual Studio Code and Python
+# 1. **Download Visual Studio Code**:
+#    - Go to the [Visual Studio Code website](https://code.visualstudio.com/).
+#    - Download and install Visual Studio Code for your operating system.
+# 
+# 2. **Download Python**:
+#    - Go to the [Python website](https://www.python.org/).
+#    - Download and install the latest version of Python.
+# 
+# #### Step 2: Install Required Extensions in Visual Studio Code
+# 1. **Open Visual Studio Code**.
+# 2. **Install the Jupyter Extension**:
+#    - Click on the Extensions icon in the sidebar (or press `Ctrl+Shift+X`).
+#    - Search for `Jupyter` and click `Install`.
+# 3. **Install the Python Extension**:
+#    - Search for `Python` and click `Install`.
+#    - Select Customize Installation 
+#       -> click "next" for Optional Features 
+#       -> In Advanced Options, click the box of "Add Python to enviorment variables"
+#       -> click install
+# 
+# #### Step 3: Install Required Libraries
+# 1. **Open Toggle Panel**:
+#    - Press `Ctrl + J`
+# 
+# 2. **Install the libraries**:
+#    - In the terminal, type the following commands one by one and press `Enter` after each: 
+#    - Double click the lower cell to copy and paste 
+
+# %% [markdown]
+#    ```sh
+#      python -m pip install pandas
+#      pip install openpyxl
+#      pip install Jinja2
+#      pip install nbconvert
+# 
+
+# %% [markdown]
+# #### Step 4: Restart Visual Studio Code
+# - Close and reopen Visual Studio Code to ensure all changes take effect.
+# 
+# #### Step 5: Set Up Jupyter Notebook in Visual Studio Code
+# **Select the Python Kernel**:
+#    - Click on `Select Kernel` in the top right corner.
+#    - Click on Python Enviroment
+#    - Select `Python` from the dropdown menu. (My python is called "3.11.undefined")
+# 
+# ### Code Setup
+# 
+# The following code initializes the environment and sets the working directory to the Hrd Metrics folder:
+
+# %%
+import numpy as np
+import pandas as pd
+import openpyxl as pxl
+import os
+path = r'S://Hrd//Metrics//Headcount_Python//'
+
+
+
+os.chdir(path)
+os. getcwd()
+
+# %% [markdown]
+# ### Step 6: to do before running code:
+# 
+# 1. Go to [sharepoint](https://intelsat.sharepoint.com/sites/HR/Lists/Hires%20Data%20Entry%20Checklist/Upcomming.aspx) download hires data entry checklist 'excel' file, change filter from `Upcoming` to `all items`. Save to the correct folder (S:\Hrd\Metrics\Headcount_Python) as .csv file with naming convention ("HDE_MM_YYYY"). Capitalization DOES matter. Please make sure you type it in correctly.
+#     - Ensure contractor conversions are included in the HDE data.
+# 
+# 2. Download headcount OTBI file and save to the same folder with the correct naming convention ("Headcount_MM_YYYY") as.csv file. 
+#     - Do all manual cleaning that is NOT one of the following:
+#         -  Remove old req numbers from headcount:
+#             - Old req numbers: 40805, 40607, 40308, 40423, 41365, 40289, 40777, 40716, 40397, 40733, 40775, 40511, 40339, 40664, 41341, 35164, 35865, 40333, 40550, 40552, 40592, 40676, 40779, 40607, 34601.
+#         -  Remove all interns.
+#         -  Remove all LTD from tier 3 "Long Term Disability".
+#         -  Recognize name changes and remove duplicates.
+#         -  Brings in Globalization PArtners from the last month. Need to manually change if there were changes in GPs from last month.
+#     - Manual cleanup includes:
+#         - checking for blank cost centers
+#         
+# 
+# 3. Ensure that there is a _compare file for the previous month's headcount in the folder. This file should have the same name as the headcount file but with "_compare" at the end, e.g., "Headcount_MM_YYYY_compare". 
+
+# %% [markdown]
+# 
+# #### The following code merges the current month and comparison month files together. It also performs some data cleaning:
+
+# %% [markdown]
+# #### <span style="color:red"> Step 7: Change year and month based on the reporting month (if you are doing April headcount you would enter "04") </span>.
+
+# %%
+#change year and month based on the reporting month (if you are doing April headcount you would enter "04")
+yr = f"2024"
+mo = f"08"
+
+#Problem, naming differences, xlsx file instead of csv
+current_path = f"Headcount_{mo}_{yr}.csv"
+compare_path = f"Headcount_{mo}_{yr}_compare.csv"
+hde_path = f"HDE_{mo}_{yr}.csv"
+
+df_cur = pd.read_csv(current_path)
+df_comp = pd.read_csv(compare_path)
+df_hde = pd.read_csv(hde_path)
+
+
+# %% [markdown]
+# ### Step 8 : Run the code
+#     - you can either click "Run All" in the toolbar, 
+#     - or run each cell individually in a row by clicking the play button next to each cell when you hover over it
+
+# %% [markdown]
+# The below code filters out  the following from the HDE file: cancelled and dates after the end of the current month we are measuring and add conditions for changing years
+# 
+
+# %%
+#change the req numbers to strings and add req to the begiing to be able to match to the df and filter on action and if there is no start date
+df_hde['Req. #'] = df_hde['Req. #'].str.replace(',','')
+df_hde['Req. #'] = df_hde['Req. #'].astype(str)
+df_hde['req_num_new'] = 'Req ' + df_hde['Req. #']
+
+df_hde = df_hde.drop(df_hde[(df_hde['Action']== 'Cancelled - After conversion')].index)
+df_hde = df_hde.drop(df_hde[(df_hde['Action']== 'Cancelled - Before conversion')].index)
+df_hde = df_hde.dropna(subset = ['Start Date'], inplace= False)
+
+df_hde['Start Date'] = pd.to_datetime(df_hde['Start Date']).dt.date
+
+# filter out dates after the end of the current month we are measuring and add conditions for changing years
+
+if int(mo) == 12:
+    next_month = f"1"
+    yr = int(yr) + 1
+else:
+    next_month = int(mo) + 1
+next_month_str = f"{next_month}/1/{yr}"
+
+later_dates = pd.to_datetime(next_month_str)
+df_hde['Start Date'] = pd.to_datetime(df_hde['Start Date'])
+
+df_hde = df_hde[~(df_hde['Start Date'] > later_dates)]
+df_hde = df_hde[~(df_hde['Start Date'] == later_dates)]
+
+
+# %%
+# merge the current month and comparison month files together
+df= pd.merge(df_cur, df_comp, on=('EE/Req #','Cost Center', 'Tier 1', 'Tier 2', 'Tier 3', 'Legal Full Name'), how = 'outer', indicator = True)
+
+# merge combined file with the requisition file
+dfs= pd.merge(df, df_hde, left_on = ('EE/Req #') , right_on= ('req_num_new'), how = 'left', suffixes = ("", "_z"))
+
+#remove old req numbers from headcount 
+# 40805, 40607, 40308, 40423, 41365, 40289, 40777, 40716, 40397, 40733, 40775, 40511, 40339, 40664, 41341, 35164, 35865, 40333, 40550, 40552, 40592, 40676, 40779, 40607, 34601
+dfs['Start Date'] = dfs['Start Date'].dt.date
+reqs_remove = ['Req 40805', 'Req 40607', 'Req 40308', 'Req 40423', 'Req 41365', 'Req 40289', 'Req 40777', 'Req 40716', 'Req 40397', 'Req 40733', 'Req 40775', 'Req 40511', 'Req 40339', 'Req 40664', 'Req 41341', 'Req 35164', 'Req 35865', 'Req 40333', 'Req 40550', 'Req 40552', 'Req 40592', 'Req 40676', 'Req 40779', 'Req 40607', 'Req 34601'] 
+
+dfs= dfs[~(dfs['EE/Req #'].isin(reqs_remove))]
+
+
+
+#iterate through duplicated columns and move blank values for x over to y
+columns = ['VP', 'Employee or Req', 'Grade', 'Location', 'Status', 'Type', 'Source', 'Reconcilation Comments', 'Headcount ', 
+           'Include or Exclude', 'Days Open', 'OrgChart Full Name', 'OrgChart Business Title', 'OrgChart Supervisor', 'Unnamed: 20']
+
+for col in columns:
+    dfs[col+'_x'] = dfs[col+'_x'].fillna(dfs[col+'_y'])
+
+#drop _y columns
+dfs= dfs.drop(columns= ['VP_y', 'Employee or Req_y', 'Grade_y', 'Location_y', 'Status_y', 'Type_y', 'Source_y', 'Reconcilation Comments_y', 'Include or Exclude_y', 
+                        'Days Open_y', 'OrgChart Full Name_y', 'OrgChart Business Title_y', 'OrgChart Supervisor_y', 'Unnamed: 20_y'])
+
+#changes the values in the _merge column from technical terms ('left_only', 'right_only', 'both') 
+#to more descriptive terms ('This month only', 'Last month only', 'both') for better readability.
+
+
+
+
+x = {"left_only" : "This month only",
+     "right_only" : "Last month only",
+     "both" : "both"}
+
+dfs['_merge'] = dfs['_merge'].map(x) 
+
+#replace any EE/GP people as 'both' in the merge column instead of last month only to capture the GP people in both months
+#people with 'Employee or Req_x' equal to 'EE/GP' are marked as 'both' in the '_merge' column.
+dfs.loc[dfs['Employee or Req_x'] == 'EE/GP', '_merge'] = 'both'
+
+#New Identifier column
+dfs['_merge'] = dfs['_merge'].cat.add_categories(['zero HC last month (both)', 'Last month only (term)'])
+dfs['identifier'] = dfs.apply(lambda row: 'Review' if row['_merge'] == 'both' and (row['Headcount _x'] == 0 or (row['Headcount _y'] == 0)) else '', axis=1)
+
+# Do not set _merge to 'both' if headcount was zero last month but not zero this month
+dfs.loc[(dfs['_merge'] == 'both') & ((dfs['Headcount _y'] == 0) ), '_merge'] = "zero HC last month (both)"
+
+# Add a tab for any zero headcounts from last month
+zero_headcount = dfs[(dfs['Headcount _y'] == 0)]
+
+dfs= dfs.drop(columns= ['Headcount _y', 'Unnamed: 0'])
+
+#drop duplicates by number and name in case there was a name change
+dfs = dfs.drop_duplicates(subset= ['Cost Center','EE/Req #', 'Legal Full Name', 'Tier 2'])
+
+print(dfs.columns)
+# remove all interns (listed as employees)
+dfs = dfs[~(dfs['Cost Center'] == '12155.Interns')]
+dfs = dfs[~(dfs['Legal Full Name'] == 'Intern')]
+# Filter out LTD from tier 3 "Long Term Disability"
+dfs = dfs[~(dfs['Tier 3'] == 'Long Term Disability')]
+
+#clear cells from comment column (Unnamed: 20) if they are an employee
+dfs.loc[dfs['Employee or Req_x'] == ('EE') , 'Unnamed: 20_x'] = np.nan
+
+#make all "last month only" rows 0 HC
+dfs.loc[dfs['_merge'] == ("Last month only" ),'Headcount _x'] = 0
+
+#create a last month and current month comparison
+last_month = dfs[~(dfs['_merge'] == 'This month only')]
+last_month = last_month.groupby(['Cost Center', 'Tier 1', 'Tier 2']).size().reset_index(name='last_month_count')
+last_month = last_month.sort_values(['Tier 1','Tier 2'])
+
+current_month = dfs[~(dfs['_merge'] == 'Last month only')]
+current_month = current_month.groupby(['Cost Center', 'Tier 1', 'Tier 2']).size().reset_index(name='current_month_count')
+current_month = current_month.sort_values(['Tier 1','Tier 2'])
+
+#group together by tier 1 and tier 2
+
+summary= pd.merge(last_month, current_month,how= 'outer', on=('Cost Center', 'Tier 1', 'Tier 2'))
+#summary = dfs.groupby(['Cost Center', 'Tier 1', 'Tier 2']).size().reset_index(name='count')
+#summary = summary.sort_values(['Tier 1','Tier 2'])
+
+# Identify duplicates and headcount changes
+dfs['duplicate'] = dfs.duplicated(subset=['EE/Req #'], keep=False)
+dfs['hc_change'] = 0
+dfs.loc[(dfs['duplicate'] == True) & (dfs['_merge'] == 'Last month only'), "hc_change"] = int(-1)
+dfs.loc[(dfs['duplicate'] == True) & (dfs['_merge'] == 'This month only'), "hc_change"] = int(1)
+
+
+
+# Identify transfers
+transfers = dfs[['Cost Center', 'Tier 1', 'Tier 2', 'EE/Req #', 'Legal Full Name', 'OrgChart Business Title_x', 'duplicate', 'hc_change']]
+transfers = transfers.loc[transfers['duplicate'] == True]
+transfers = transfers.sort_values('EE/Req #')
+
+# group together all reqs that are duplicates based on the below columns
+reqs_only = dfs.loc[(dfs['Employee or Req_x'] == 'Req')]
+
+# group reqs to find duplicates
+source= reqs_only.groupby(['Source_x']).size().reset_index(name='count')
+source = source[source['count'] > 1]
+source = source.drop(columns = 'count')
+
+source = pd.merge(source, dfs[['Source_x' , 'EE/Req #']], on= 'Source_x', how= 'left')
+mult_reqs= source.groupby('Source_x')['EE/Req #'].apply(list).reset_index()
+'''
+mult_reqs = reqs_only.groupby(['Cost Center', 'Tier 1', 'Tier 2', 'Legal Full Name', 'OrgChart Business Title_x', 'OrgChart Supervisor_x']).size().reset_index(name='count')
+mult_reqs = mult_reqs[(mult_reqs['count'] != 1)]
+mult_reqs = mult_reqs.sort_values('Tier 1')
+'''
+
+dfs.loc[(dfs['duplicate'] == False) & (dfs['Employee or Req_x'] == 'EE') & (dfs['_merge'] == 'Last month only'), '_merge'] = 'Last month only (term)'
+
+changes= (dfs.groupby('_merge').size().reset_index(name='count'))
+
+
+# %% [markdown]
+# ### Saving the file
+
+# %%
+# create file and save
+
+all_merged = f'{mo}_{yr}_headcount_merged.xlsx'
+
+def rename_x_columns(df):
+    # Rename columns ending with '_x' to their original names
+    df.columns = [col[:-2] if (col.endswith('_x') | col.endswith('_y') ) else col for col in df.columns]
+    return df
+dfs = rename_x_columns(dfs)  # Rename columns in the merged data
+
+dfs.to_excel(all_merged, sheet_name= 'merged_data', index= False)
+
+#create multiple sheets in workbook
+# Properly load the workbook
+book = pxl.load_workbook(all_merged)
+
+# Inside this context manager, handle everything related to writing new data to the file\
+# without overwriting existing data
+
+
+with pd.ExcelWriter(all_merged, engine='openpyxl', mode='a', if_sheet_exists='overlay') as writer:
+    # Your loaded workbook is set as the "base of work"   
+    writer.workbook = book
+
+    # Loop through the existing worksheets in the workbook and map each title to\
+    # the corresponding worksheet (that is, a dictionary where the keys are the\
+    # existing worksheets' names and the values are the actual worksheets)
+    writer.worksheets = {worksheet.title: worksheet for worksheet in book.worksheets}
+
+    # Apply the renaming function to each DataFrame
+    changes = rename_x_columns(changes)
+    summary = rename_x_columns(summary)
+    reqs_only = rename_x_columns(reqs_only)
+    mult_reqs = rename_x_columns(mult_reqs)
+    transfers = rename_x_columns(transfers)
+    
+    #headcount = rename_x_columns(headcount)
+    
+    # Write the new data to the file 
+    changes.to_excel(writer, 'changes', index=False)
+    summary.to_excel(writer, 'summary', index=False)
+    reqs_only.to_excel(writer, 'reqs_only', index=False)
+    mult_reqs.to_excel(writer, 'multiple_reqs', index = False)
+    transfers.to_excel(writer, 'transfers_namechanges', index = False)
+    writer._save()
+
+
+# %% [markdown]
+# 
+# 
+# #### Tabs in the Saved Excel File
+# 
+# 1. **merged_data**:
+#     - Contains the merged dataset of the current month's and the previous month's headcount data. It includes all the data points from both months, indicating where the data came from using the `_merge` column.
+# 
+# 2. **changes**:
+#     - Lists the changes identified between the current and previous month's data (This month only, Last month only, and Both)
+# 
+# 3. **summary**:
+#     - Provides a summary of the headcount data, grouped by `Cost Center`, `Tier 1`, and `Tier 2`, showing counts for both the last month and the current month.
+# 
+# 4. **reqs_only**:
+#     - Includes only the requisition data (`Req`) entries. It focuses on the requisition-related information from the merged dataset.
+# 
+# 5. **multiple_reqs**:
+#     - Identifies and lists multiple requisitions based on certain grouping criteria (e.g., `Cost Center`, `Tier 1`, `Tier 2`, `Legal Full Name`, `OrgChart Business Title`, `OrgChart Supervisor`).
+# 
+# 6. **transfers or name changes**:
+#     - Details employee transfers within the organization. It includes information about the cost center, tiers, employee ID (`EE/Req #`), name, business title, and any headcount changes or duplicates.
+# 
+# 7. **zero_headcount_last_month**:
+#     - Contains entries with a zero headcount from the last month that are not marked as `right_only` in the `_merge` column.
+# 
+# 
+# 
+
+# %% [markdown]
+# ### **Important Instructions for Working with the Merged Headcount File**
+# 
+# Once you start working on the `{mo}_{yr}_headcount_merged.xlsx` file, please rename it to `{mo}_{yr}_headcount_merged_working.xlsx`. This will prevent the file from being overwritten if the script is run again.
+# 
+# ### Example:
+# Rename `05_2024_headcount_merged.xlsx` to `05_2024_headcount_merged_working.xlsx`.
+# 
+# ### Why This is Important:
+# Renaming the file helps to:
+# - Preserve your edits and updates.
+# - Prevent accidental data loss.
+# - Prepare your document for the next script
+# 
+# ### Things to check in the headcount_working file
+# If there were any Globalization Partner changes, you will need to go review those separately because the code just pulls them in from last month and marks them as 'both'
+# 
+# 
+# 
+
+
